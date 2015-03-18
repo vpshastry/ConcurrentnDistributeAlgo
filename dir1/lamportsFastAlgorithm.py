@@ -35,7 +35,7 @@ class LamportsFastAlgo:
             if self.y != -1:
                 self.b[myIdx] = False
 
-                if self.y != -1:
+                while self.y != -1:
                     pass
 
                 stayInLoop = True
@@ -45,11 +45,11 @@ class LamportsFastAlgo:
             if x != myIdx:
                 self.b[myIdx] = False
                 for j in range (self.nthreads):
-                    if self.b[j] != False:
+                    while self.b[j] != False:
                         pass
 
                 if self.y != myIdx:
-                    if self.y != -1:
+                    while self.y != -1:
                         pass
 
                     stayInLoop = True

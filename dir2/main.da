@@ -1,0 +1,209 @@
+import sys
+import time
+import datetime
+
+#Agrawal-Al Ebbadi algorithm for calculating the quorum set
+class AEAalgo():
+    def grantsPermission(self, root, i):
+        # Currently It's assumed to be reliable cluster.
+        return True
+
+    def isEmpty(self, root, i):
+        # checks for empty node
+        return (True if len(root) <= i else False)
+
+    def leftChild(self, root, i):
+        # returns the left child of the ith node
+        return 2*(i+1) -1
+
+    def rightChild(self, root, i):
+        # returns the right child of the ith node
+        return 2*(i+1)
+
+    def getQuorum (self, root, i, me):
+        quorumSet = []
+
+        if self.isEmpty(root, i):
+            return []
+
+        elif self.grantsPermission(root, i):
+            # Add the current node to the quorum list and call left/right
+            # child recursively
+            quorumSet.append(root[i])
+            if me < root[i]:
+                tempList = self.getQuorum(root, self.leftChild(root, i), me)
+                if 'Failure' not in tempList:
+                    quorumSet.extend(tempList)
+                    return quorumSet
+
+            else:
+                tempList = self.getQuorum(root, self.rightChild(root, i), me)
+                if 'Failure' not in tempList:
+                    quorumSet.extend(tempList)
+                    return quorumSet
+
+            return 'Failure'
+
+        else:
+            # In case of a node failure consider both of it's children.
+            leftNode = self.leftChild (i)
+            rightNode = self.rightChild (i)
+
+            if self.isEmpty(root, leftNode) or self.isEmpty(root, rightNode):
+                return 'Failure'
+
+            quorumSet.append (leftNode)
+            quorumSet.append (rightNode)
+            return quorumSet
+
+    def myRun(self, ps, me, myidx):
+        quorumSet = self.getQuorum (ps, myidx, me)
+
+        # Build the quorum set above the given node
+        myidx = ((myidx+1) //2)-1
+        while myidx:
+            quorumSet.append (ps[myidx])
+            myidx = ((myidx +1) //2)-1
+
+        quorumSet.append(ps[0])
+        return quorumSet
+
+
+class P(process):
+    def setup(ps, nrounds):
+        # Initialize all the neccessary variables
+        self.sharedMemory = 0
+        self.quorumSet = []
+
+        # To store whether it has replied to at least one of them
+        self.replied = None
+        # TO store all the requests received
+        self.reqQ = []
+
+        # To store the replies
+        self.replyl = []
+
+        # It stores the time consumed from all the iterations
+        self.timeConsumed = []
+
+    def cs(task):
+        -- request
+        start = datetime.datetime.now()
+
+        # Send request and take the lock
+        ownc = logical_clock()
+        send (('req', ownc, self.id), to=self.quorumSet)
+        # wait until all of them reply
+        await (len(self.replyl) == len(self.quorumSet))
+
+        end = datetime.datetime.now()
+        self.timeConsumed.append ((end - start))
+
+        task()
+
+        -- release
+        # relinq the locks by sending 'relinq'
+        send (('relinq', ownc, self.id), to=self.quorumSet)
+
+    def receive (msg=('inquire', j)):
+        # if it hasn't received reply from all the nodes in quorumset reply
+        # yeild
+        if len(self.replyl) != len(self.quorumSet):
+            """
+            if j in self.replyl:
+                self.replyl.remove (j)
+            """
+            send (('yield', self.id), to=j)
+        return
+
+    def receive (msg=('reply', j)):
+        # If received 'reply' add it to the reply list
+        if j not in self.replyl:
+            self.replyl.append (j)
+        return
+
+    def receive (msg=('req', clkj, j)):
+        # If this is the first request send 'reply'
+        # Else compare it to the existing reply. If the priority is greater
+        # send 'inquire' to the previously replied node
+        # else add it to the request queue
+        if (clkj, j) not in self.reqQ:
+            self.reqQ.append ((clkj, j))
+
+        (clkMin, sendP) = sorted (self.reqQ, key=lambda tup: (tup[0], tup[1]))[0]
+
+        if not self.reqQ:
+            self.replied = j
+            send (('reply', self.id), to=j)
+            return
+
+        elif (clkMin, sendP) < (clkj, j) and self.replied != 0:
+            send (('inquire', self.id), to=self.replied)
+
+        """if self.replied == 0:
+            send (('reply', self.id), to=sendP)"""
+
+        return
+
+    def receive (msg=('relinq', clkj, j)):
+        # remove the node from the queue, and send the reply to next in the
+        # queue
+        if (clkj, j) in reqQ:
+            self.replied = 0
+            self.reqQ.remove ((clkj, j))
+
+        if self.reqQ:
+            (lclk, lproc) = sorted (self.reqQ, key=lambda tup: (tup[0], tup[1]))[0]
+            self.replied = lproc
+            send (('reply', self.id), to=lproc)
+
+    def receive (msg=('yield', j)):
+        # send the reply to the next one in the queue
+        if self.reqQ:
+            (lclk, lproc) = sorted (self.reqQ, key=lambda tup: (tup[0], tup[1]))[0]
+            self.replied = lproc
+            send (('reply', self.id), to=lproc)
+        return
+
+    def buildQuorumSet(ps):
+        # This calls the Agrawal-Al Ebbadi algorithm and builds the quorumset
+        quorum = AEAalgo()
+        plist = [p for p in ps]
+        self.quorumSet = list(quorum.myRun(plist, self.id, plist.index(self.id)))
+        if 'Failure' in self.quorumSet:
+            exit (1)
+
+    def run():
+        def anounce():
+            output("In cs!")
+
+        # Pass this function to test the correctness
+        def anouncetest():
+            output(">>>>>>>>>> Entering cs!")
+            time.sleep (10)
+            output("<<<<<<<<<< Exiting cs!")
+
+        self.buildQuorumSet(ps)
+
+        for i in range(nrounds):
+            cs(anounce)
+
+        # Uncomment this to see the performance of the implementation
+        # average = sum(self.timeConsumed) / len(self.timeConsumed)))
+        # varience = sum((average - value) ** 2 for value in self.timeConsumed) / len(self.timeConsumed))))
+        # print ("Average: ", average, "Varience:", varience)
+        
+        send(('Done',), to=ps)
+        await(each(p in ps, has= received(('Done',), from_=p)))
+        output("Done!")
+
+def main():
+    nprocs = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    nrounds = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    config(clock='Lamport')
+    config(channel='fifo')
+    ps = new(P, num= nprocs)
+    # setup the processes
+    for p in ps: setup({p}, (ps, nrounds))
+    # start the processes
+    start(ps)
