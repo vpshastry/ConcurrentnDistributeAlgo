@@ -1,8 +1,4 @@
 Name: Varun Shastry
-ID: 109951476
-Assignment Number: 3
-Course: Concurrent and Distributed Algorithms
-Course Number: CSE 690
 Date: 18th March 2015
 
 This project implements the Agrawala and El Abaddi algorithm for distributed
